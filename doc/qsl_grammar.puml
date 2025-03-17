@@ -1,0 +1,83 @@
+@startebnf
+
+query = criteria , {';', criteria};
+
+criteria = attributes ,
+   (
+       expression-equality
+     | expression-relational
+     | properties
+   )
+   ;
+
+expression-equality =   ('=' | '<>'), (values | value)
+                      | '=', range
+                      ;
+
+expression-relational = ('<' | '>' | '<=' | '>='), value;
+
+properties = 'is' (* case insensitive *), ['not' (* case insensitive *)], 'null' (* case insensitive *);
+
+attributes = attribute , {',', attribute};
+
+attribute = attributes-chars , {'.', attributes-chars};
+
+attributes-chars = ? any ascii chars without "." ?;
+
+range =  '[', value, ',', value,']';
+
+values = '(',value, {',', value},')';
+
+value = ?long?
+| ?double?
+| ?char?
+| string
+| date
+| time-point
+| boolean;
+
+string = quoted-string
+       | double-quoted-string ;
+quoted-string = "'", quoted-chars-sequence, "'";
+double-quoted_string = '"', double-quoted-chars-sequence, '"';
+
+quoted-chars-sequence = ? chars without ' ?;
+double-quoted-chars-sequence = ? chars without " ?;
+
+date = 'date' (* case insensitive *),'(',date-value,')';
+
+' TODO check date-value support quote and double quote
+date-value = '"',4*?0-9?,(?0?,?1-9?|?1?,?0-2?),(?0?,?1-9?|?1-2?,?0-9?|?3?,?0-1?),'"';
+
+(* ISO date format supported is YYYYMMDD *)
+
+time-point = 'time-point','(',(time-category,[',', time-offset] | time-zone | time-offset),')';
+
+time-category = ('date' | 'time'), [',', time-zone];
+
+time-zone = time-zone-id | 'UTC';
+
+time-zone-id = string;
+
+(* time-zone-id is the IANA time zone ID (https://nodatime.org/TimeZones) *)
+
+time-offset = {
+    time-span,
+    [   'y'
+      | 'm'
+      | 'd'
+      | 'H'
+      | 'M'
+      | 'S'
+    ]}-
+    ;
+
+time-span = ['+'|'-'],{'0-9'}-;
+
+time-value = '"',4*?0-9?,(?0?,?1-9?|?1?,?0-2?),(?0?,?1-9?|?1-2?,?0-9?|?3?,?0-1?),'"';
+
+(* ISO date format supported is YYYYMMDD *)
+
+boolean = 'true'
+        | 'false';
+@endebnf
