@@ -1,0 +1,453 @@
+options {
+    STATIC=false;
+    FORCE_LA_CHECK=true;
+    DEBUG_PARSER=false;
+}
+PARSER_BEGIN(Query)
+package org.glywk;
+
+import org.glywk.builder.*;
+import java.time.ZoneId;import java.time.ZoneOffset;import java.util.ArrayList;
+import java.util.Collections;import java.util.Optional;
+
+public class Query {
+    private RequestFactory factory;
+
+    public void setRequestFactory(RequestFactory factory) {
+        this.factory = factory;
+    }
+}
+
+PARSER_END(Query)
+TOKEN_MGR_DECLS: {
+}
+
+<DEFAULT,VALUES_STATE> SKIP :
+{
+    " "
+|   "\n"
+|   "\r"
+|   "\r\n"
+}
+
+TOKEN [IGNORE_CASE]:
+{
+   <IS : "is" >: VALUES_STATE
+}
+
+TOKEN :
+{
+    <EQ                   : "="  >: VALUES_STATE
+|   <NEQ                  : "<>" >: VALUES_STATE
+|   <LTE                  : "<=" >: VALUES_STATE
+|   <GTE                  : ">=" >: VALUES_STATE
+|   <LT                   : "<"  >: VALUES_STATE
+|   <GT                   : ">"  >: VALUES_STATE
+|   <#ATTRIBUT_CHARS : ["a"-"z","A"-"Z","_"] (["a"-"z","A"-"Z","_","0"-"9"])*>
+|   <#CHAIN_ATTRIBUT_CHARS : (["a"-"z","A"-"Z","_","0"-"9"])+>
+|   <ATTRIBUT   : <ATTRIBUT_CHARS> ("." <CHAIN_ATTRIBUT_CHARS>)*>
+|   <ATTRIBUTES_SEPARATOR : ","  >
+}
+
+<VALUES_STATE> TOKEN [IGNORE_CASE]:
+{
+    <NOT        : "not" >
+|   <NULL       : "null" >
+|   <DATE       : "date" >: DATE_STATE
+|   <TIME_POINT : "time-point" >: TIME_POINT_STATE
+|   <TRUE       : "true" >
+|   <FALSE      : "false" >
+}
+
+<VALUES_STATE> TOKEN :
+{
+    <END_CRITERIA     : ";" >: DEFAULT
+|   <BEGIN_SET        : "(" >
+|   <END_SET          : ")" >
+|   <BEGIN_RANGE      : "[" >
+|   <END_RANGE        : "]" >
+|   <VALUES_SEPARATOR : ",">
+|   <#DIGIT           : ["0"-"9"]>
+|   <#SIGN            : "+" | "-" >
+|   <LONG             : (<SIGN>)? ["1"-"9"] (<DIGIT>)*>
+|   <#EXPONENT        : ["e","E"] (<SIGN>)? ( <DIGIT> )+>
+|   <#FRACTION        : "." ( <DIGIT> )+>
+|   <DOUBLE           : (<SIGN>)? ( <DIGIT> )* ( <FRACTION> ) ( <EXPONENT> )? >
+|   <DOUBLE_WITHOUT_FRACTION : (<SIGN>)? ( <DIGIT> )+ ( <EXPONENT> )? >
+|   <BEGIN_QUOTE      : "'" >: QUOTED_STRING_STATE
+|   <BEGIN_DOUBLE_QUOTE : "\"" >: DOUBLE_QUOTED_STRING_STATE
+}
+
+/*
+<QUOTED_STRING_STATE> SKIP :
+{
+    "\n"
+|   "\r"
+|   "\r\n"
+}
+*/
+
+<QUOTED_STRING_STATE> TOKEN : {
+    <END_QUOTE : "'" >: VALUES_STATE
+|   <QUOTED_CHAR : (~["'"])>
+}
+
+/*
+<DOUBLE_QUOTED_STRING_STATE> SKIP :
+{
+    "\n"
+|   "\r"
+|   "\r\n"
+}
+*/
+
+<DOUBLE_QUOTED_STRING_STATE> TOKEN : {
+    <END_DOUBLE_QUOTE : "\"" >: VALUES_STATE
+|   <DOUBLE_QUOTED_CHAR : (~["\""])>
+}
+
+<DATE_STATE> SKIP :
+{
+    " "
+|   "\n"
+|   "\r"
+|   "\r\n"
+}
+
+<DATE_STATE> TOKEN : {
+    <START_DATE : "(" >
+|   <END_DATE : ")" > : VALUES_STATE
+|   <DATE_QUOTE : "\"" >
+|   <DATE_VALUE : (["0"-"9"]){4}(["0"]["1"-"9"]|["1"]["1"-"2"])(["0"]["1"-"9"]|["1"-"2"]["0"-"9"]|["3"]["0"-"1"])>
+}
+
+<TIME_POINT_STATE> SKIP :
+{
+    " "
+|   "\n"
+|   "\r"
+|   "\r\n"
+}
+
+<TIME_POINT_STATE> TOKEN [IGNORE_CASE]:
+{
+    <TIME_POINT_DATE       : "date" >
+|   <TIME_POINT_TIME       : "time" >
+|   <TIME_POINT_ZONE_UTC   : "utc" >
+}
+
+<TIME_POINT_STATE> TOKEN:
+{
+    <TIME_POINT_PLUS                : "+" >
+|   <TIME_POINT_MINUS               : "-" >
+|   <TIME_POINT_SEPARATOR           : "," >
+|   <TIME_POINT_START               : "(" >
+|   <TIME_POINT_END                 : ")" > : VALUES_STATE
+|   <TIME_POINT_DIGITS              : (["0"-"9"])+ >
+|   <TIME_POINT_YEAR                : "y" >
+|   <TIME_POINT_MONTH               : "m" >
+|   <TIME_POINT_DAY                 : "d" >
+|   <TIME_POINT_HOUR                : "H" >
+|   <TIME_POINT_MINUTE              : "M" >
+|   <TIME_POINT_SECOND              : "S" >
+|   <BEGIN_TIME_POINT_QUOTE         : "'" > : TIME_POINT_QUOTED_STRING_STATE
+|   <BEGIN_DOUBLE_TIME_POINT_QUOTE  : "\"" >: TIME_POINT_DOUBLE_QUOTED_STRING_STATE
+}
+
+<TIME_POINT_QUOTED_STRING_STATE> TOKEN : {
+    <TIME_POINT_END_QUOTE : "'" >: TIME_POINT_STATE
+|   <TIME_POINT_QUOTED_CHAR : (~["'"])>
+}
+
+<TIME_POINT_DOUBLE_QUOTED_STRING_STATE> TOKEN : {
+    <TIME_POINT_END_DOUBLE_QUOTE : "\"" >: TIME_POINT_STATE
+|   <TIME_POINT_DOUBLE_QUOTED_CHAR : (~["\""])>
+}
+
+Criterias criterias () :
+{
+    ArrayList<Criteria> criterias = new ArrayList<>();
+    Criteria criteria = null;
+}
+{
+   criteria = criteria() {criterias.add(criteria);}
+   (
+      <END_CRITERIA> {System.out.println(";");}
+      criteria = criteria() {criterias.add(criteria);}
+   )*
+  {return factory.makeCriterias(criterias);}
+}
+
+Criteria criteria() :
+{
+  Attributes attributes = null;
+  Operation operation = null;
+}
+{
+    attributes = attributes()
+    (
+         operation = expressionEquality()
+       | operation = expressionRelational()
+       | operation = attributesProperties()
+    )
+    { return factory.makeCriteria(attributes,operation);}
+}
+
+Operation expressionEquality () :
+{
+   RangeValue range = null;
+   CollectionValue values = null;
+   Value value = null;
+}
+{
+      <EQ> {System.out.println("=");}
+    (
+        value = value() {return factory.equals(value); }
+      | values = values() {return factory.equals(values); }
+      | range = range() {return factory.equals(range); }
+    )
+    | <NEQ> {System.out.println("<>");}
+    (
+        value = value() {return factory.differs(value); }
+      | values = values() {return factory.differs(values); }
+    )
+}
+
+Operation expressionRelational () :
+{
+   Value value = null;
+}
+{
+      value = value() {return factory.differs(value); }
+    | <LTE>  {System.out.println("<=");}
+      value = value() {return factory.lessOrEquals(value); }
+    | <GTE> {System.out.println(">=");}
+      value = value() {return factory.greaterOrEquals(value); }
+    | <GT>  {System.out.println(">");}
+      value = value() {return factory.greater(value); }
+    | <LT>  {System.out.println("<");}
+      value = value() {return factory.less(value);}
+}
+
+Operation attributesProperties () :
+{
+   boolean nullable = true;
+}
+{
+   <IS> (<NOT> {nullable = false;})? <NULL> {return nullable ? factory.isNull(): factory.isNotNull();}
+}
+
+StringValue string() :
+{
+    StringValue string = null;
+}
+{
+        <BEGIN_DOUBLE_QUOTE> string = doubleQuotedString() <END_DOUBLE_QUOTE> {return string;}
+    |   <BEGIN_QUOTE> string = quotedString() <END_QUOTE> {return string;}
+}
+
+StringValue doubleQuotedString() :
+{
+   StringBuilder content = new StringBuilder();
+   Token t;
+}
+{
+    (
+        t = <DOUBLE_QUOTED_CHAR> { content.append(t.image); }
+    )*
+    {return factory.makeDoubleQuotedString(content.toString()); }
+}
+
+StringValue quotedString() :
+{
+   StringBuilder content = new StringBuilder();
+   Token t;
+}
+{
+     (
+         t = <QUOTED_CHAR> { content.append(t.image); }
+     )*
+    {System.out.println(content);return factory.makeQuotedString(content.toString()); }
+}
+
+DateValue date () :
+{
+    Token t;
+}
+{
+   <DATE> <START_DATE> <DATE_QUOTE> t=<DATE_VALUE> <DATE_QUOTE> <END_DATE> {System.out.println(t.image);return factory.makeDate(t.image);}
+}
+
+TimePointValue timePoint () :
+{
+    TimePointCategory timePointCategory = TimePointCategory.DATE_TIME;
+    //TimeCategory timeCategory = null;
+    TimePointOffsetValue timePointOffset = factory.makeTimePointOffsetValue(Collections.emptyList());
+    TimeZoneValue tz = null;
+    Optional<TimeZoneValue> zone = Optional.empty() ;
+}
+{
+   <TIME_POINT> <TIME_POINT_START> (
+        timePointCategory = timePointCategory() //{timePointCategory = timeCategory.category(); zone = timeCategory.timeZone();}
+        (
+           <TIME_POINT_SEPARATOR>
+           (
+               tz = timePointZone() {zone = Optional.of(tz);}
+               (<TIME_POINT_SEPARATOR> timePointOffset = timePointOffset())?
+             | timePointOffset = timePointOffset()
+           )
+        )?
+      | timePointOffset = timePointOffset() //{timePointCategory = TimePointCategory.DATE_TIME;}
+      | tz = timePointZone() {zone = Optional.of(tz);}
+   )?
+   <TIME_POINT_END>
+   {return factory.makeTimePoint(timePointCategory,timePointOffset,zone);}
+}
+
+TimePointCategory timePointCategory () :
+{
+    //TimePointCategory category = null;
+    //TimeZoneValue tz = null;
+    //Optional<TimeZoneValue> zone = Optional.empty() ;
+}
+{
+     <TIME_POINT_DATE> {return TimePointCategory.DATE;}
+   | <TIME_POINT_TIME> {return TimePointCategory.TIME;}
+
+   //{return new TimeCategory(category,zone);}
+}
+
+TimePointOffsetValue timePointOffset () :
+{
+    Token t;
+    int offset = 0;
+    TimePointSpanUnit unit;
+    TimePointSpanOperation operation;
+    ArrayList<TimePointSpanModifier> modifiers = new ArrayList<>();
+}
+{
+   (
+       {operation = TimePointSpanOperation.ABSOLUTE;}
+       (
+           <TIME_POINT_PLUS>  {System.out.println("+"); operation = TimePointSpanOperation.ADDITIVE;}
+         | <TIME_POINT_MINUS> {System.out.println("-"); operation = TimePointSpanOperation.SUBSTRACT;}
+       ) ?
+       t = <TIME_POINT_DIGITS> {System.out.println(t.image); offset = Integer.parseInt(t.image);}
+       (
+            <TIME_POINT_DAY>    {System.out.println("d"); modifiers.add(factory.makeTimePointModifier(operation, offset, TimePointSpanUnit.DAY));}
+          | <TIME_POINT_MONTH>  {System.out.println("m"); modifiers.add(factory.makeTimePointModifier(operation, offset, TimePointSpanUnit.MONTH));}
+          | <TIME_POINT_YEAR>   {System.out.println("y"); modifiers.add(factory.makeTimePointModifier(operation, offset, TimePointSpanUnit.YEAR));}
+          | <TIME_POINT_HOUR>   {System.out.println("H"); modifiers.add(factory.makeTimePointModifier(operation, offset, TimePointSpanUnit.HOUR));}
+          | <TIME_POINT_MINUTE> {System.out.println("M"); modifiers.add(factory.makeTimePointModifier(operation, offset, TimePointSpanUnit.MINUTE));}
+          | <TIME_POINT_SECOND> {System.out.println("S"); modifiers.add(factory.makeTimePointModifier(operation, offset, TimePointSpanUnit.SECOND));}
+       )
+   )+ {return factory.makeTimePointOffsetValue(modifiers);}
+}
+
+TimeZoneValue timePointZone () :
+{
+    TimeZoneValue zone = null;
+}
+{
+     zone = timeZoneString() {return zone;}
+   | <TIME_POINT_ZONE_UTC> {return factory.makeUtcTimeZoneString();}
+}
+
+TimeZoneValue timeZoneString() :
+{
+    TimeZoneValue zone = null;
+}
+{
+        <BEGIN_DOUBLE_TIME_POINT_QUOTE> zone = doubleQuotedTimeZoneString() <TIME_POINT_END_DOUBLE_QUOTE> {return zone;}
+    |   <BEGIN_TIME_POINT_QUOTE> zone = quotedTimeZoneString() <TIME_POINT_END_QUOTE> {return zone;}
+}
+
+TimeZoneValue doubleQuotedTimeZoneString() :
+{
+   StringBuilder content = new StringBuilder();
+   Token t;
+}
+{
+    (
+        t = <TIME_POINT_DOUBLE_QUOTED_CHAR> { content.append(t.image); }
+    )*
+    {return factory.makeDoubleQuotedTimeZoneString(content.toString()); }
+}
+
+TimeZoneValue quotedTimeZoneString() :
+{
+   StringBuilder content = new StringBuilder();
+   Token t;
+}
+{
+     (
+         t = <TIME_POINT_QUOTED_CHAR> { content.append(t.image); }
+     )*
+    {System.out.println(content);return factory.makeQuotedTimeZoneString(content.toString()); }
+}
+
+Attributes attributes () :
+{
+    ArrayList<Attribute> attributes = new ArrayList<>();
+    Attribute attribute;
+}
+{
+  attribute = attribute() {attributes.add(attribute);}
+  (
+   <ATTRIBUTES_SEPARATOR> {System.out.println(",");}
+   attribute = attribute() {attributes.add(attribute);}
+  ) *
+  {return factory.attributes(attributes);}
+}
+
+Attribute attribute () :
+{
+    Token t;
+}
+{
+  t=<ATTRIBUT>  {System.out.println(t.image);return factory.attribute(t.image);}
+}
+
+CollectionValue values () :
+{
+    ArrayList<Value> values = new ArrayList<>();
+    Value value = null;
+}
+{
+  <BEGIN_SET> {System.out.println("(");}
+      value = value() {values.add(value);}
+      (
+         <VALUES_SEPARATOR> {System.out.println(",");}
+         value = value() {values.add(value);}
+      ) *
+  <END_SET> {System.out.println(")");return factory.values(values);}
+}
+
+RangeValue range () :
+{
+    Value lhs;
+    Value rhs;
+}
+{
+  <BEGIN_RANGE> {System.out.println("[");}
+      lhs = value()
+      <VALUES_SEPARATOR> {System.out.println(",");}
+      rhs = value()
+  <END_RANGE> {System.out.println("]");return factory.range(lhs, rhs);}
+}
+
+Value value () :
+{
+    Token t;
+    Value value;
+}
+{
+    t=<LONG>   {System.out.println(t.image);return factory.makeLong(t.image);}
+  | t=<DOUBLE> {System.out.println(t.image);return factory.makeDouble(t.image);}
+  | t=<DOUBLE_WITHOUT_FRACTION> {System.out.println(t.image);return factory.makeDouble(t.image);}
+  | t=<TRUE>   {System.out.println(t.image);return factory.makeTrue();}
+  | t=<FALSE>  {System.out.println(t.image);return factory.makeFalse();}
+  | value = string() {return value;}
+  | value = date() {return value;}
+  | value = timePoint() {return value;}
+}
